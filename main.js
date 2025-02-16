@@ -1,4 +1,5 @@
-import * as THREE from 'https://unpkg.com/three@0.154.0/build/three.module.js';
+// Now that we've defined an import map, we can import THREE using the bare specifier.
+import * as THREE from 'three';
 import { PointerLockControls } from 'https://unpkg.com/three@0.154.0/examples/jsm/controls/PointerLockControls.js';
 
 // Global variables
