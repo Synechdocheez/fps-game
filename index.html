@@ -6,14 +6,19 @@
   <link rel="stylesheet" href="style.css">
 </head>
 <body>
-  <div id="blocker">
-    <div id="instructions">
-      Click to Play<br>
-      (W, A, S, D to move, mouse to look, click to shoot)
-    </div>
+  <!-- Main Menu -->
+  <div id="menu">
+    <h1>FPS Arena Game</h1>
+    <button id="playButton">Play</button>
+    <div id="highScoreDisplay">High Score: 0</div>
   </div>
-  <div id="info"></div>
-  <!-- Load our main game logic -->
+
+  <!-- Game Container -->
+  <div id="gameContainer">
+    <!-- HUD Info -->
+    <div id="info"></div>
+  </div>
+
   <script type="module" src="main.js"></script>
 </body>
 </html>
