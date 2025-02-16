@@ -1,79 +1,91 @@
-// Import Three.js and PointerLockControls from CDN
 import * as THREE from 'https://unpkg.com/three@0.154.0/build/three.module.js';
 import { PointerLockControls } from 'https://unpkg.com/three@0.154.0/examples/jsm/controls/PointerLockControls.js';
 
-// --- Scene Setup ---
+// Global Variables
 let camera, scene, renderer, controls;
-let moveForward = false, moveBackward = false, moveLeft = false, moveRight = false;
-let canJump = false;
-let prevTime = performance.now();
-let velocity = new THREE.Vector3();
-let direction = new THREE.Vector3();
+let moveForward, moveBackward, moveLeft, moveRight, canJump;
+let prevTime, velocity, direction;
 
-// Enemy and game round variables
-let enemyList = [];
-let currentRound = 1;
-const baseEnemyCount = 3;  // starting number of enemies
-const enemySpeed = 1.0;    // base enemy speed
-let score = 0;
+let enemyList, currentRound, score;
+const baseEnemyCount = 3;  // Starting enemies per round
+const enemySpeed = 1.0;    // Base enemy speed
 
-scene = new THREE.Scene();
-scene.background = new THREE.Color(0xaaaaaa);
-scene.fog = new THREE.Fog(0xaaaaaa, 0, 750);
+let gameRunning = false;
+const info = document.getElementById('info');
+const menu = document.getElementById('menu');
+const playButton = document.getElementById('playButton');
+const highScoreDisplay = document.getElementById('highScoreDisplay');
+const gameContainer = document.getElementById('gameContainer');
 
-camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 1, 1000);
-camera.position.y = 10;
+// --- Initialization Function ---
+function initGame() {
+  // Reset movement & game variables
+  moveForward = moveBackward = moveLeft = moveRight = false;
+  canJump = false;
+  prevTime = performance.now();
+  velocity = new THREE.Vector3();
+  direction = new THREE.Vector3();
+  enemyList = [];
+  currentRound = 1;
+  score = 0;
 
-// --- Lights ---
-const hemiLight = new THREE.HemisphereLight(0xffffff, 0x444444);
-hemiLight.position.set(0, 200, 0);
-scene.add(hemiLight);
+  // Create scene & camera
+  scene = new THREE.Scene();
+  scene.background = new THREE.Color(0xaaaaaa);
+  scene.fog = new THREE.Fog(0xaaaaaa, 0, 750);
 
-const dirLight = new THREE.DirectionalLight(0xffffff);
-dirLight.position.set(0, 200, 100);
-dirLight.castShadow = true;
-dirLight.shadow.camera.top = 180;
-dirLight.shadow.camera.bottom = -100;
-dirLight.shadow.camera.left = -120;
-dirLight.shadow.camera.right = 120;
-scene.add(dirLight);
+  camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 1, 1000);
+  camera.position.y = 10;
 
-// --- Floor (Arena) ---
-const floorGeometry = new THREE.PlaneGeometry(1000, 1000, 10, 10);
-const floorMaterial = new THREE.MeshBasicMaterial({ color: 0x007700 });
-const floor = new THREE.Mesh(floorGeometry, floorMaterial);
-floor.rotation.x = - Math.PI / 2;
-scene.add(floor);
+  // Lighting
+  const hemiLight = new THREE.HemisphereLight(0xffffff, 0x444444);
+  hemiLight.position.set(0, 200, 0);
+  scene.add(hemiLight);
 
-// --- Renderer ---
-renderer = new THREE.WebGLRenderer();
-renderer.setPixelRatio(window.devicePixelRatio);
-renderer.setSize(window.innerWidth, window.innerHeight);
-document.body.appendChild(renderer.domElement);
+  const dirLight = new THREE.DirectionalLight(0xffffff);
+  dirLight.position.set(0, 200, 100);
+  dirLight.castShadow = true;
+  dirLight.shadow.camera.top = 180;
+  dirLight.shadow.camera.bottom = -100;
+  dirLight.shadow.camera.left = -120;
+  dirLight.shadow.camera.right = 120;
+  scene.add(dirLight);
 
-// --- Pointer Lock Controls ---
-controls = new PointerLockControls(camera, document.body);
-const blocker = document.getElementById('blocker');
-const instructions = document.getElementById('instructions');
+  // Floor (Arena)
+  const floorGeometry = new THREE.PlaneGeometry(1000, 1000, 10, 10);
+  const floorMaterial = new THREE.MeshBasicMaterial({ color: 0x007700 });
+  const floor = new THREE.Mesh(floorGeometry, floorMaterial);
+  floor.rotation.x = -Math.PI / 2;
+  scene.add(floor);
 
-instructions.addEventListener('click', function () {
-  controls.lock();
-}, false);
+  // Renderer: Clear any previous content in gameContainer
+  while (gameContainer.firstChild) {
+    gameContainer.removeChild(gameContainer.firstChild);
+  }
+  renderer = new THREE.WebGLRenderer();
+  renderer.setPixelRatio(window.devicePixelRatio);
+  renderer.setSize(window.innerWidth, window.innerHeight);
+  gameContainer.appendChild(renderer.domElement);
 
-controls.addEventListener('lock', function () {
-  instructions.style.display = 'none';
-  blocker.style.display = 'none';
-});
+  // Pointer Lock Controls
+  controls = new PointerLockControls(camera, document.body);
+  scene.add(controls.getObject());
 
-controls.addEventListener('unlock', function () {
-  blocker.style.display = 'flex';
-  instructions.style.display = '';
-});
+  // Set up key and mouse event listeners
+  document.addEventListener('keydown', onKeyDown, false);
+  document.addEventListener('keyup', onKeyUp, false);
+  document.addEventListener('mousedown', onMouseDown, false);
 
-scene.add(controls.getObject());
+  // Spawn the first round of enemies
+  spawnEnemies(baseEnemyCount);
 
-// --- Movement Controls ---
-const onKeyDown = function (event) {
+  // Set the HUD high score from localStorage (if any)
+  const storedHighScore = localStorage.getItem('highScore') || 0;
+  highScoreDisplay.innerHTML = "High Score: " + storedHighScore;
+}
+
+// --- Event Listeners ---
+function onKeyDown(event) {
   switch (event.code) {
     case 'ArrowUp':
     case 'KeyW':
@@ -96,9 +108,9 @@ const onKeyDown = function (event) {
       canJump = false;
       break;
   }
-};
+}
 
-const onKeyUp = function (event) {
+function onKeyUp(event) {
   switch (event.code) {
     case 'ArrowUp':
     case 'KeyW':
@@ -117,24 +129,22 @@ const onKeyUp = function (event) {
       moveRight = false;
       break;
   }
-};
+}
 
-document.addEventListener('keydown', onKeyDown, false);
-document.addEventListener('keyup', onKeyUp, false);
-
-// --- Shooting ---
-document.addEventListener('mousedown', function (event) {
+function onMouseDown(event) {
+  // Only allow shooting when pointer lock is active
   if (!controls.isLocked) return;
   const raycaster = new THREE.Raycaster();
   raycaster.setFromCamera(new THREE.Vector2(0, 0), camera);
   const intersects = raycaster.intersectObjects(enemyList);
   if (intersects.length > 0) {
+    // Remove enemy on hit
     const enemy = intersects[0].object;
     scene.remove(enemy);
     enemyList = enemyList.filter(e => e !== enemy);
     score += 10;
   }
-}, false);
+}
 
 // --- Enemy Spawning ---
 function spawnEnemies(count) {
@@ -142,69 +152,63 @@ function spawnEnemies(count) {
     const enemyGeometry = new THREE.BoxGeometry(10, 10, 10);
     const enemyMaterial = new THREE.MeshBasicMaterial({ color: 0xff0000 });
     const enemy = new THREE.Mesh(enemyGeometry, enemyMaterial);
-    // Randomly position the enemy, avoiding too close proximity to the player.
+    // Random position, avoiding immediate proximity to the player
     let x = Math.random() * 800 - 400;
     let z = Math.random() * 800 - 400;
     while (Math.sqrt(x * x + z * z) < 50) {
       x = Math.random() * 800 - 400;
       z = Math.random() * 800 - 400;
     }
-    enemy.position.set(x, 5, z); // y=5 so it sits on the floor
+    enemy.position.set(x, 5, z); // y=5 places the enemy on the floor
     scene.add(enemy);
     enemyList.push(enemy);
   }
 }
 
-// Start the first round
-spawnEnemies(baseEnemyCount);
-
-// --- HUD Info ---
-const info = document.getElementById('info');
+// --- HUD Update ---
 function updateInfo() {
   info.innerHTML = `Score: ${score}<br>Round: ${currentRound}<br>Enemies: ${enemyList.length}`;
 }
 
-// --- Animation Loop ---
+// --- Main Animation Loop ---
 function animate() {
+  if (!gameRunning) return; // Stop the loop if the game is not running
   requestAnimationFrame(animate);
 
-  if (controls.isLocked === true) {
-    const time = performance.now();
-    const delta = (time - prevTime) / 1000;
+  const time = performance.now();
+  const delta = (time - prevTime) / 1000;
 
-    // Dampen the velocity (simulate friction)
-    velocity.x -= velocity.x * 10.0 * delta;
-    velocity.z -= velocity.z * 10.0 * delta;
+  // Apply damping to velocity (simulate friction)
+  velocity.x -= velocity.x * 10.0 * delta;
+  velocity.z -= velocity.z * 10.0 * delta;
 
-    // Movement speed
-    const speed = 400.0;
-    direction.z = Number(moveForward) - Number(moveBackward);
-    direction.x = Number(moveRight) - Number(moveLeft);
-    direction.normalize();
+  const speed = 400.0;
+  direction.z = Number(moveForward) - Number(moveBackward);
+  direction.x = Number(moveRight) - Number(moveLeft);
+  direction.normalize();
 
-    if (moveForward || moveBackward) velocity.z -= direction.z * speed * delta;
-    if (moveLeft || moveRight) velocity.x -= direction.x * speed * delta;
+  if (moveForward || moveBackward) velocity.z -= direction.z * speed * delta;
+  if (moveLeft || moveRight) velocity.x -= direction.x * speed * delta;
 
-    controls.moveRight(-velocity.x * delta);
-    controls.moveForward(-velocity.z * delta);
+  controls.moveRight(-velocity.x * delta);
+  controls.moveForward(-velocity.z * delta);
 
-    // --- Enemy Behavior ---
-    const playerPosition = controls.getObject().position;
-    for (let enemy of enemyList) {
-      const enemyPos = enemy.position;
-      const vecToPlayer = new THREE.Vector3().subVectors(playerPosition, enemyPos);
-      const distance = vecToPlayer.length();
-      vecToPlayer.normalize();
-      enemy.position.add(vecToPlayer.multiplyScalar(enemySpeed * delta * 20));
-      if (distance < 10) {
-        alert("Game Over! Your score: " + score);
-        window.location.reload();
-      }
+  // Enemy behavior: move enemies toward the player
+  const playerPosition = controls.getObject().position;
+  for (let enemy of enemyList) {
+    const enemyPos = enemy.position;
+    const vecToPlayer = new THREE.Vector3().subVectors(playerPosition, enemyPos);
+    const distance = vecToPlayer.length();
+    vecToPlayer.normalize();
+    enemy.position.add(vecToPlayer.multiplyScalar(enemySpeed * delta * 20));
+    // If an enemy gets too close, trigger game over
+    if (distance < 10) {
+      gameOver();
+      return;
     }
-    prevTime = time;
   }
 
-  // --- Check for Round Completion ---
+  // Check for round completion
   if (enemyList.length === 0 && controls.isLocked) {
     currentRound++;
     const enemyCount = baseEnemyCount + currentRound * 2;
@@ -212,14 +216,43 @@ function animate() {
   }
 
   updateInfo();
+  prevTime = time;
   renderer.render(scene, camera);
 }
 
-animate();
+// --- Game Over & Reset ---
+function gameOver() {
+  gameRunning = false;
+  // Update high score in localStorage if needed
+  const storedHighScore = Number(localStorage.getItem('highScore')) || 0;
+  if (score > storedHighScore) {
+    localStorage.setItem('highScore', score);
+  }
+  alert("Game Over! Your score: " + score);
+  // Unlock pointer and show the main menu again
+  controls.unlock();
+  menu.style.display = "flex";
+  gameContainer.style.display = "none";
+}
 
-// --- Handle Window Resize ---
+// --- Start Game ---
+playButton.addEventListener('click', () => {
+  // Hide main menu and show game container
+  menu.style.display = "none";
+  gameContainer.style.display = "block";
+  // Initialize the game
+  initGame();
+  gameRunning = true;
+  // Activate pointer lock (this must be triggered by a user gesture)
+  controls.lock();
+  animate();
+});
+
+// --- Window Resize Handling ---
 window.addEventListener('resize', function () {
-  camera.aspect = window.innerWidth / window.innerHeight;
-  camera.updateProjectionMatrix();
-  renderer.setSize(window.innerWidth, window.innerHeight);
+  if (camera && renderer) {
+    camera.aspect = window.innerWidth / window.innerHeight;
+    camera.updateProjectionMatrix();
+    renderer.setSize(window.innerWidth, window.innerHeight);
+  }
 }, false);
