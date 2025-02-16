@@ -1,14 +1,14 @@
 import * as THREE from 'https://unpkg.com/three@0.154.0/build/three.module.js';
 import { PointerLockControls } from 'https://unpkg.com/three@0.154.0/examples/jsm/controls/PointerLockControls.js';
 
-// Global Variables
+// Global variables
 let camera, scene, renderer, controls;
 let moveForward, moveBackward, moveLeft, moveRight, canJump;
 let prevTime, velocity, direction;
 
 let enemyList, currentRound, score;
-const baseEnemyCount = 3;  // Starting enemies per round
-const enemySpeed = 1.0;    // Base enemy speed
+const baseEnemyCount = 3;  // starting enemies per round
+const enemySpeed = 1.0;    // base enemy speed
 
 let gameRunning = false;
 const info = document.getElementById('info');
@@ -17,7 +17,6 @@ const playButton = document.getElementById('playButton');
 const highScoreDisplay = document.getElementById('highScoreDisplay');
 const gameContainer = document.getElementById('gameContainer');
 
-// --- Initialization Function ---
 function initGame() {
   // Reset movement & game variables
   moveForward = moveBackward = moveLeft = moveRight = false;
@@ -67,8 +66,17 @@ function initGame() {
   renderer.setSize(window.innerWidth, window.innerHeight);
   gameContainer.appendChild(renderer.domElement);
 
-  // Pointer Lock Controls
-  controls = new PointerLockControls(camera, document.body);
+  // Create Pointer Lock Controls attached to the renderer's DOM element
+  controls = new PointerLockControls(camera, renderer.domElement);
+
+  // Log pointer lock events for debugging
+  controls.addEventListener('lock', () => {
+    console.log('Pointer locked.');
+  });
+  controls.addEventListener('unlock', () => {
+    console.log('Pointer unlocked.');
+  });
+
   scene.add(controls.getObject());
 
   // Set up key and mouse event listeners
@@ -84,7 +92,6 @@ function initGame() {
   highScoreDisplay.innerHTML = "High Score: " + storedHighScore;
 }
 
-// --- Event Listeners ---
 function onKeyDown(event) {
   switch (event.code) {
     case 'ArrowUp':
@@ -138,7 +145,6 @@ function onMouseDown(event) {
   raycaster.setFromCamera(new THREE.Vector2(0, 0), camera);
   const intersects = raycaster.intersectObjects(enemyList);
   if (intersects.length > 0) {
-    // Remove enemy on hit
     const enemy = intersects[0].object;
     scene.remove(enemy);
     enemyList = enemyList.filter(e => e !== enemy);
@@ -146,7 +152,6 @@ function onMouseDown(event) {
   }
 }
 
-// --- Enemy Spawning ---
 function spawnEnemies(count) {
   for (let i = 0; i < count; i++) {
     const enemyGeometry = new THREE.BoxGeometry(10, 10, 10);
@@ -159,18 +164,16 @@ function spawnEnemies(count) {
       x = Math.random() * 800 - 400;
       z = Math.random() * 800 - 400;
     }
-    enemy.position.set(x, 5, z); // y=5 places the enemy on the floor
+    enemy.position.set(x, 5, z);
     scene.add(enemy);
     enemyList.push(enemy);
   }
 }
 
-// --- HUD Update ---
 function updateInfo() {
   info.innerHTML = `Score: ${score}<br>Round: ${currentRound}<br>Enemies: ${enemyList.length}`;
 }
 
-// --- Main Animation Loop ---
 function animate() {
   if (!gameRunning) return; // Stop the loop if the game is not running
   requestAnimationFrame(animate);
@@ -201,7 +204,7 @@ function animate() {
     const distance = vecToPlayer.length();
     vecToPlayer.normalize();
     enemy.position.add(vecToPlayer.multiplyScalar(enemySpeed * delta * 20));
-    // If an enemy gets too close, trigger game over
+    // Game over if enemy gets too close
     if (distance < 10) {
       gameOver();
       return;
@@ -220,35 +223,31 @@ function animate() {
   renderer.render(scene, camera);
 }
 
-// --- Game Over & Reset ---
 function gameOver() {
   gameRunning = false;
-  // Update high score in localStorage if needed
   const storedHighScore = Number(localStorage.getItem('highScore')) || 0;
   if (score > storedHighScore) {
     localStorage.setItem('highScore', score);
   }
   alert("Game Over! Your score: " + score);
-  // Unlock pointer and show the main menu again
   controls.unlock();
   menu.style.display = "flex";
   gameContainer.style.display = "none";
 }
 
-// --- Start Game ---
+// --- Start Game when Play button is clicked ---
 playButton.addEventListener('click', () => {
-  // Hide main menu and show game container
+  console.log("Play button clicked.");
   menu.style.display = "none";
   gameContainer.style.display = "block";
-  // Initialize the game
   initGame();
   gameRunning = true;
-  // Activate pointer lock (this must be triggered by a user gesture)
-  controls.lock();
+  // Request pointer lock on the renderer's canvas (user gesture)
+  renderer.domElement.requestPointerLock();
   animate();
 });
 
-// --- Window Resize Handling ---
+// --- Handle Window Resize ---
 window.addEventListener('resize', function () {
   if (camera && renderer) {
     camera.aspect = window.innerWidth / window.innerHeight;
