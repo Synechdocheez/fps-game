@@ -2,93 +2,102 @@ import * as THREE from 'three';
 import { PointerLockControls } from 'https://unpkg.com/three@0.154.0/examples/jsm/controls/PointerLockControls.js';
 import { GLTFLoader } from 'https://unpkg.com/three@0.154.0/examples/jsm/loaders/GLTFLoader.js';
 
-// === Global Variables ===
+// ================== Global Variables ==================
 let camera, scene, renderer, controls;
 let moveForward, moveBackward, moveLeft, moveRight, canJump;
 let prevTime, velocity, direction;
 let enemyList = [];
+let enemyMixers = []; // For enemy animations
 let currentRound = 1, score = 0;
 let bullets = [];
-
 const baseEnemyCount = 3;
 const enemySpeed = 1.0;
 let gameRunning = false;
 
-// DOM Elements
-const info = document.getElementById('info');
-const menu = document.getElementById('menu');
-const playButton = document.getElementById('playButton');
-const highScoreDisplay = document.getElementById('highScoreDisplay');
-const gameContainer = document.getElementById('gameContainer');
-
-// Jumping & Sprinting
+// Gravity, jumping & sprinting
 let isSprinting = false;
-const GRAVITY = 9.8 * 100; // gravity constant
+const GRAVITY = 9.8 * 100; // adjust gravity as needed
 
-// Ammo & Reloading
-let ammo, maxAmmo = 10, reloading = false;
-const reloadTime = 2000; // milliseconds
-
-// Gun Recoil
-let weaponMesh = null;
+// ================== Ammo, Reloading & Gun Recoil ==================
+let lastShotTime = 0;
 const originalWeaponPos = new THREE.Vector3(0.5, -1.5, -2);
-let recoilAmount = 0;
+let currentGunMesh = null;
 
-// Model Loader & URLs
+// ================== Inventory & Guns ==================
+const guns = [
+  {
+    name: "Pistol",
+    modelUrl: "https://rawcdn.githack.com/jeremysalt/threejs-pistol/master/models/pistol.glb",
+    ammo: 12,
+    maxAmmo: 12,
+    reloadTime: 1500, // ms
+    bulletSpeed: 2000,
+    fireRate: 0.5, // seconds between shots
+    recoil: 0.5,
+    bulletDamage: 10,
+    pellets: 1
+  },
+  {
+    name: "Shotgun",
+    modelUrl: "https://raw.githubusercontent.com/engla99/shotgun-glb/main/shotgun.glb", // placeholder URL; replace if desired
+    ammo: 6,
+    maxAmmo: 6,
+    reloadTime: 2500,
+    bulletSpeed: 1500,
+    fireRate: 1.0,
+    recoil: 1.0,
+    bulletDamage: 25,
+    pellets: 6
+  }
+];
+let currentGunIndex = 0;
+let currentGun = guns[currentGunIndex];
+
+// ================== Models ==================
 const loader = new GLTFLoader();
-let enemyModel = null;
-let weaponModel = null;
-const enemyModelUrl = 'https://threejs.org/examples/models/gltf/Duck/glTF/Duck.gltf';
-// Using a DamagedHelmet model as a placeholder for a weapon model.
-const weaponModelUrl = 'https://rawcdn.githack.com/mrdoob/three.js/r146/examples/models/gltf/DamagedHelmet/glTF/DamagedHelmet.gltf';
+// Use CesiumMan as a humanoid enemy model
+const enemyModelUrl = "https://raw.githubusercontent.com/KhronosGroup/glTF-Sample-Models/master/2.0/CesiumMan/glTF/CesiumMan.gltf";
 
-// Load enemy model
+// We'll load the enemy model once and then clone it.
+let enemyModel = null;
 loader.load(
   enemyModelUrl,
   (gltf) => {
     enemyModel = gltf.scene;
-    enemyModel.scale.set(0.5, 0.5, 0.5);
-    enemyModel.traverse((child) => {
-      if (child.isMesh) child.castShadow = true;
-    });
-    console.log('Enemy model loaded.');
+    console.log("Enemy model (CesiumMan) loaded.");
+    // Optionally, store animations if available:
+    enemyModel.animations = gltf.animations;
   },
   undefined,
   (error) => {
-    console.error('Error loading enemy model', error);
+    console.error("Error loading enemy model", error);
   }
 );
 
-// Load weapon model
-loader.load(
-  weaponModelUrl,
-  (gltf) => {
-    weaponModel = gltf.scene;
-    weaponModel.scale.set(1, 1, 1);
-    console.log('Weapon model loaded.');
-  },
-  undefined,
-  (error) => {
-    console.error('Error loading weapon model', error);
-  }
-);
+// ================== HUD & DOM Elements ==================
+const info = document.getElementById("info");
+const menu = document.getElementById("menu");
+const playButton = document.getElementById("playButton");
+const highScoreDisplay = document.getElementById("highScoreDisplay");
+const gameContainer = document.getElementById("gameContainer");
 
-// === Game Initialization ===
+// ================== Game Initialization ==================
 function initGame() {
-  // Reset variables
+  // Reset movement & game variables
   moveForward = moveBackward = moveLeft = moveRight = false;
   canJump = false;
   prevTime = performance.now();
   velocity = new THREE.Vector3();
   direction = new THREE.Vector3();
   enemyList = [];
+  enemyMixers = [];
   currentRound = 1;
   score = 0;
   bullets = [];
-  ammo = maxAmmo;
-  reloading = false;
-  recoilAmount = 0;
-  
+  // Reset ammo for current gun
+  currentGun.ammo = currentGun.maxAmmo;
+  lastShotTime = 0;
+
   // Create Scene & Camera
   scene = new THREE.Scene();
   scene.background = new THREE.Color(0xaaaaaa);
@@ -96,19 +105,8 @@ function initGame() {
   camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 1, 1000);
   camera.position.y = 10;
 
-  // Attach Weapon Model to the Camera
-  if (weaponModel) {
-    weaponMesh = weaponModel.clone();
-    weaponMesh.position.copy(originalWeaponPos);
-    camera.add(weaponMesh);
-  } else {
-    // Fallback: a simple box
-    const geometry = new THREE.BoxGeometry(0.5, 0.2, 1);
-    const material = new THREE.MeshBasicMaterial({ color: 0x333333 });
-    weaponMesh = new THREE.Mesh(geometry, material);
-    weaponMesh.position.copy(originalWeaponPos);
-    camera.add(weaponMesh);
-  }
+  // Load and attach current gun model
+  loadGunModel(currentGun);
 
   // Lighting
   const hemiLight = new THREE.HemisphereLight(0xffffff, 0x444444);
@@ -123,9 +121,9 @@ function initGame() {
   dirLight.shadow.camera.right = 120;
   scene.add(dirLight);
 
-  // Floor with a grassy texture
+  // Floor (with grassy texture)
   const floorGeometry = new THREE.PlaneGeometry(1000, 1000);
-  const floorTexture = new THREE.TextureLoader().load('https://threejs.org/examples/textures/terrain/grasslight-big.jpg');
+  const floorTexture = new THREE.TextureLoader().load("https://threejs.org/examples/textures/terrain/grasslight-big.jpg");
   floorTexture.wrapS = floorTexture.wrapT = THREE.RepeatWrapping;
   floorTexture.repeat.set(50, 50);
   const floorMaterial = new THREE.MeshLambertMaterial({ map: floorTexture });
@@ -134,7 +132,7 @@ function initGame() {
   floor.receiveShadow = true;
   scene.add(floor);
 
-  // Add environment objects
+  // Add extra environment objects (pillars, trees)
   addEnvironment();
 
   // Set up Renderer
@@ -149,25 +147,63 @@ function initGame() {
 
   // Set up Pointer Lock Controls
   controls = new PointerLockControls(camera, renderer.domElement);
-  controls.addEventListener('lock', () => { console.log('Pointer locked.'); });
-  controls.addEventListener('unlock', () => { console.log('Pointer unlocked.'); });
+  controls.addEventListener("lock", () => { console.log("Pointer locked."); });
+  controls.addEventListener("unlock", () => { console.log("Pointer unlocked."); });
   scene.add(controls.getObject());
 
-  // Event Listeners
-  document.addEventListener('keydown', onKeyDown, false);
-  document.addEventListener('keyup', onKeyUp, false);
-  document.addEventListener('mousedown', onMouseDown, false);
+  // Event Listeners for input
+  document.addEventListener("keydown", onKeyDown, false);
+  document.addEventListener("keyup", onKeyUp, false);
+  document.addEventListener("mousedown", onMouseDown, false);
 
   // Spawn initial enemies
   spawnEnemies(baseEnemyCount);
 
   // Update high score display
-  const storedHighScore = localStorage.getItem('highScore') || 0;
+  const storedHighScore = localStorage.getItem("highScore") || 0;
   highScoreDisplay.innerHTML = "High Score: " + storedHighScore;
 }
 
-// Add pillars and trees for immersion
+// ================== Load Gun Model ==================
+function loadGunModel(gun) {
+  // Remove old gun if present
+  if (currentGunMesh && camera.children.includes(currentGunMesh)) {
+    camera.remove(currentGunMesh);
+  }
+  loader.load(
+    gun.modelUrl,
+    (gltf) => {
+      currentGunMesh = gltf.scene.clone();
+      currentGunMesh.position.copy(originalWeaponPos);
+      camera.add(currentGunMesh);
+      console.log(gun.name + " model loaded.");
+    },
+    undefined,
+    (error) => {
+      console.error("Error loading gun model", error);
+      // Fallback: a simple box
+      const geometry = new THREE.BoxGeometry(0.5, 0.2, 1);
+      const material = new THREE.MeshBasicMaterial({ color: 0x333333 });
+      currentGunMesh = new THREE.Mesh(geometry, material);
+      currentGunMesh.position.copy(originalWeaponPos);
+      camera.add(currentGunMesh);
+    }
+  );
+}
+
+// ================== Switch Gun (Inventory) ==================
+function switchGun(index) {
+  if (index < 0 || index >= guns.length) return;
+  if (index === currentGunIndex) return;
+  currentGunIndex = index;
+  currentGun = guns[currentGunIndex];
+  loadGunModel(currentGun);
+  console.log("Switched to " + currentGun.name);
+}
+
+// ================== Environment Objects ==================
 function addEnvironment() {
+  // Add some pillars
   const pillarGeometry = new THREE.CylinderGeometry(5, 5, 50, 16);
   const pillarMaterial = new THREE.MeshLambertMaterial({ color: 0x888888 });
   for (let i = 0; i < 10; i++) {
@@ -176,6 +212,7 @@ function addEnvironment() {
     pillar.castShadow = true;
     scene.add(pillar);
   }
+  // Add some trees
   const trunkGeometry = new THREE.CylinderGeometry(1, 1, 10, 8);
   const trunkMaterial = new THREE.MeshLambertMaterial({ color: 0x8B4513 });
   const leavesGeometry = new THREE.ConeGeometry(5, 20, 8);
@@ -193,122 +230,158 @@ function addEnvironment() {
   }
 }
 
-// === Input Handlers ===
+// ================== Input Handlers ==================
 function onKeyDown(event) {
   switch (event.code) {
-    case 'ArrowUp':
-    case 'KeyW':
+    case "ArrowUp":
+    case "KeyW":
       moveForward = true;
       break;
-    case 'ArrowLeft':
-    case 'KeyA':
+    case "ArrowLeft":
+    case "KeyA":
       moveLeft = true;
       break;
-    case 'ArrowDown':
-    case 'KeyS':
+    case "ArrowDown":
+    case "KeyS":
       moveBackward = true;
       break;
-    case 'ArrowRight':
-    case 'KeyD':
+    case "ArrowRight":
+    case "KeyD":
       moveRight = true;
       break;
-    case 'Space':
+    case "Space":
       if (canJump === true) {
         velocity.y += 350;
         canJump = false;
       }
       break;
-    case 'ShiftLeft':
-    case 'ShiftRight':
+    case "ShiftLeft":
+    case "ShiftRight":
       isSprinting = true;
       break;
-    case 'KeyR':
-      if (!reloading && ammo < maxAmmo) {
-        reloading = true;
+    case "KeyR":
+      // Reload current gun if needed
+      if (currentGun.ammo < currentGun.maxAmmo) {
+        console.log("Reloading " + currentGun.name + "...");
         setTimeout(() => {
-          ammo = maxAmmo;
-          reloading = false;
-        }, reloadTime);
+          currentGun.ammo = currentGun.maxAmmo;
+        }, currentGun.reloadTime);
       }
+      break;
+    case "Digit1":
+      switchGun(0);
+      break;
+    case "Digit2":
+      if (guns.length > 1) switchGun(1);
       break;
   }
 }
 
 function onKeyUp(event) {
   switch (event.code) {
-    case 'ArrowUp':
-    case 'KeyW':
+    case "ArrowUp":
+    case "KeyW":
       moveForward = false;
       break;
-    case 'ArrowLeft':
-    case 'KeyA':
+    case "ArrowLeft":
+    case "KeyA":
       moveLeft = false;
       break;
-    case 'ArrowDown':
-    case 'KeyS':
+    case "ArrowDown":
+    case "KeyS":
       moveBackward = false;
       break;
-    case 'ArrowRight':
-    case 'KeyD':
+    case "ArrowRight":
+    case "KeyD":
       moveRight = false;
       break;
-    case 'ShiftLeft':
-    case 'ShiftRight':
+    case "ShiftLeft":
+    case "ShiftRight":
       isSprinting = false;
       break;
   }
 }
 
-// === Shooting: Create a bullet with trail and recoil ===
+// ================== Shooting Handler ==================
 function onMouseDown(event) {
   if (!controls.isLocked) return;
-  // Only shoot if ammo is available and not reloading
-  if (ammo > 0 && !reloading) {
-    ammo--;
-    // Gun recoil: push weapon back
-    if (weaponMesh) {
-      weaponMesh.position.z = originalWeaponPos.z - 0.5;
-      recoilAmount = 0.5;
+  const now = performance.now() / 1000;
+  if (now - lastShotTime < currentGun.fireRate) return; // enforce fire rate
+  if (currentGun.ammo <= 0) return; // no ammo
+  lastShotTime = now;
+  currentGun.ammo--;
+
+  // Apply recoil to the gun model
+  if (currentGunMesh) {
+    currentGunMesh.position.z = originalWeaponPos.z - currentGun.recoil;
+  }
+
+  // Determine number of pellets to shoot
+  const pellets = currentGun.pellets;
+  for (let i = 0; i < pellets; i++) {
+    // Compute spread for shotgun (or no spread for pistol)
+    let spreadAngle = 0;
+    if (pellets > 1) {
+      spreadAngle = THREE.MathUtils.degToRad(5); // 5 degrees spread
     }
+    // Create a direction vector from the camera with random spread
+    const forward = new THREE.Vector3();
+    camera.getWorldDirection(forward);
+    if (spreadAngle > 0) {
+      forward.x += (Math.random() - 0.5) * spreadAngle;
+      forward.y += (Math.random() - 0.5) * spreadAngle;
+      forward.z += (Math.random() - 0.5) * spreadAngle;
+      forward.normalize();
+    }
+
     // Create bullet mesh
     const bulletGeometry = new THREE.SphereGeometry(0.2, 8, 8);
     const bulletMaterial = new THREE.MeshBasicMaterial({ color: 0xffff00 });
     const bulletMesh = new THREE.Mesh(bulletGeometry, bulletMaterial);
-    // Spawn bullet a bit in front of the camera (using the camera's direction)
+    // Position bullet a bit in front of the camera
     const bulletStart = new THREE.Vector3();
     camera.getWorldPosition(bulletStart);
-    const forward = new THREE.Vector3();
-    camera.getWorldDirection(forward);
     bulletStart.add(forward.clone().multiplyScalar(2));
     bulletMesh.position.copy(bulletStart);
     scene.add(bulletMesh);
-    // Create a bullet trail (a line from spawn point to current bullet position)
+
+    // Create bullet trail (line from start to current bullet position)
     const trailGeometry = new THREE.BufferGeometry().setFromPoints([bulletStart.clone(), bulletStart.clone()]);
     const trailMaterial = new THREE.LineBasicMaterial({ color: 0xffff00, transparent: true, opacity: 1 });
     const trailLine = new THREE.Line(trailGeometry, trailMaterial);
     scene.add(trailLine);
-    // Add bullet to the bullets array
+
+    // Add bullet to bullets array
     bullets.push({
       mesh: bulletMesh,
-      velocity: forward.clone().multiplyScalar(2000),
-      life: 1.0, // bullet lifetime in seconds
+      velocity: forward.clone().multiplyScalar(currentGun.bulletSpeed),
+      life: 1.0, // seconds
       maxLife: 1.0,
       trail: trailLine
     });
   }
 }
 
-// === Enemy Spawning ===
+// ================== Enemy Spawning (with Animation Mixer) ==================
 function spawnEnemies(count) {
   for (let i = 0; i < count; i++) {
     let enemy;
     if (enemyModel) {
       enemy = enemyModel.clone();
+      // If the enemy model has animations, create a mixer and play the first animation
+      if (enemy.animations && enemy.animations.length > 0) {
+        const mixer = new THREE.AnimationMixer(enemy);
+        mixer.clipAction(enemy.animations[0]).play();
+        enemy.userData.mixer = mixer;
+        enemyMixers.push(mixer);
+      }
     } else {
+      // Fallback: a red box
       const enemyGeometry = new THREE.BoxGeometry(10, 10, 10);
       const enemyMaterial = new THREE.MeshBasicMaterial({ color: 0xff0000 });
       enemy = new THREE.Mesh(enemyGeometry, enemyMaterial);
     }
+    // Place enemy randomly (keeping some distance from the center)
     let x = Math.random() * 800 - 400;
     let z = Math.random() * 800 - 400;
     while (Math.sqrt(x * x + z * z) < 50) {
@@ -322,18 +395,18 @@ function spawnEnemies(count) {
   }
 }
 
-// === Update Bullets Each Frame ===
+// ================== Update Bullets ==================
 function updateBullets(delta) {
   for (let i = bullets.length - 1; i >= 0; i--) {
     const bullet = bullets[i];
     bullet.mesh.position.add(bullet.velocity.clone().multiplyScalar(delta));
-    // Update trail: modify the second vertex to follow the bullet
+    // Update trail (line end follows bullet)
     const positions = bullet.trail.geometry.attributes.position.array;
     positions[3] = bullet.mesh.position.x;
     positions[4] = bullet.mesh.position.y;
     positions[5] = bullet.mesh.position.z;
     bullet.trail.geometry.attributes.position.needsUpdate = true;
-    // Fade the trail over the bullet's lifetime
+    // Fade trail over lifetime
     bullet.trail.material.opacity = bullet.life / bullet.maxLife;
     bullet.life -= delta;
     if (bullet.life <= 0) {
@@ -342,7 +415,7 @@ function updateBullets(delta) {
       bullets.splice(i, 1);
       continue;
     }
-    // Check collision with enemies (using simple distance threshold)
+    // Check collision with enemies (using simple distance check)
     for (let j = enemyList.length - 1; j >= 0; j--) {
       const enemy = enemyList[j];
       if (bullet.mesh.position.distanceTo(enemy.position) < 5) {
@@ -358,38 +431,42 @@ function updateBullets(delta) {
   }
 }
 
-// === Update HUD Info ===
+// ================== Update HUD Info ==================
 function updateInfo() {
-  info.innerHTML = `Score: ${score}<br>Round: ${currentRound}<br>Ammo: ${ammo}/${maxAmmo}<br>Enemies: ${enemyList.length}${reloading ? '<br>Reloading...' : ''}`;
+  info.innerHTML = `Score: ${score}<br>
+Round: ${currentRound}<br>
+Gun: ${currentGun.name}<br>
+Ammo: ${currentGun.ammo}/${currentGun.maxAmmo}<br>
+Enemies: ${enemyList.length}`;
 }
 
-// === Main Animation Loop ===
+// ================== Main Animation Loop ==================
 function animate() {
   if (!gameRunning) return;
   requestAnimationFrame(animate);
   const time = performance.now();
   const delta = (time - prevTime) / 1000;
 
+  // Update enemy mixers (for animations)
+  enemyMixers.forEach((mixer) => mixer.update(delta));
+
   // Apply gravity
   velocity.y -= GRAVITY * delta;
   // Dampen horizontal velocity (simulate friction)
   velocity.x -= velocity.x * 10.0 * delta;
   velocity.z -= velocity.z * 10.0 * delta;
-  
+
   // Set base speed (increase if sprinting)
   let baseSpeed = 400.0;
   if (isSprinting) baseSpeed *= 1.5;
-  
   direction.z = Number(moveForward) - Number(moveBackward);
   direction.x = Number(moveRight) - Number(moveLeft);
   direction.normalize();
-  
   if (moveForward || moveBackward) velocity.z -= direction.z * baseSpeed * delta;
   if (moveLeft || moveRight) velocity.x -= direction.x * baseSpeed * delta;
-  
   controls.moveRight(-velocity.x * delta);
   controls.moveForward(-velocity.z * delta);
-  
+
   // Vertical movement (jumping/gravity)
   controls.getObject().position.y += velocity.y * delta;
   if (controls.getObject().position.y < 10) {
@@ -397,19 +474,19 @@ function animate() {
     controls.getObject().position.y = 10;
     canJump = true;
   }
-  
-  // Recover weapon recoil (animate the gun back to its original position)
-  if (weaponMesh && weaponMesh.position.z < originalWeaponPos.z) {
-    weaponMesh.position.z += recoilAmount * delta * 5;
-    if (weaponMesh.position.z > originalWeaponPos.z) {
-      weaponMesh.position.z = originalWeaponPos.z;
+
+  // Recover gun recoil (animate gun back to its original position)
+  if (currentGunMesh && currentGunMesh.position.z < originalWeaponPos.z) {
+    currentGunMesh.position.z += currentGun.recoil * delta * 5;
+    if (currentGunMesh.position.z > originalWeaponPos.z) {
+      currentGunMesh.position.z = originalWeaponPos.z;
     }
   }
-  
-  // Update bullets and check for collisions
+
+  // Update bullets
   updateBullets(delta);
-  
-  // Update enemies: move each enemy toward the player
+
+  // Update enemies: move them toward the player
   const playerPos = controls.getObject().position;
   for (let enemy of enemyList) {
     const enemyPos = enemy.position;
@@ -419,25 +496,25 @@ function animate() {
     enemy.position.add(vecToPlayer.multiplyScalar(enemySpeed * delta * 20));
     if (distance < 10) { gameOver(); return; }
   }
-  
-  // Check if round is cleared
+
+  // Check for round completion
   if (enemyList.length === 0 && controls.isLocked) {
     currentRound++;
     const enemyCount = baseEnemyCount + currentRound * 2;
     spawnEnemies(enemyCount);
   }
-  
+
   updateInfo();
   prevTime = time;
   renderer.render(scene, camera);
 }
 
-// === Game Over Handler ===
+// ================== Game Over ==================
 function gameOver() {
   gameRunning = false;
-  const storedHighScore = Number(localStorage.getItem('highScore')) || 0;
+  const storedHighScore = Number(localStorage.getItem("highScore")) || 0;
   if (score > storedHighScore) {
-    localStorage.setItem('highScore', score);
+    localStorage.setItem("highScore", score);
   }
   alert("Game Over! Your score: " + score);
   controls.unlock();
@@ -445,8 +522,8 @@ function gameOver() {
   gameContainer.style.display = "none";
 }
 
-// === Start Game on Play Button Click ===
-playButton.addEventListener('click', () => {
+// ================== Start Game ==================
+playButton.addEventListener("click", () => {
   console.log("Play button clicked.");
   menu.style.display = "none";
   gameContainer.style.display = "block";
@@ -456,8 +533,8 @@ playButton.addEventListener('click', () => {
   animate();
 });
 
-// === Handle Window Resize ===
-window.addEventListener('resize', () => {
+// ================== Handle Window Resize ==================
+window.addEventListener("resize", () => {
   if (camera && renderer) {
     camera.aspect = window.innerWidth / window.innerHeight;
     camera.updateProjectionMatrix();
