@@ -32,8 +32,10 @@ body {
   cursor: pointer;
 }
 
-#highScoreDisplay {
+#highScoreDisplay,
+#instructions {
   font-size: 24px;
+  margin-top: 5px;
 }
 
 /* Crosshair */
