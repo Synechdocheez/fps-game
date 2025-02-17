@@ -21,6 +21,8 @@ const GRAVITY = 9.8 * 100; // adjust gravity as needed
 // ================== Ammo, Reloading & Gun Recoil ==================
 let lastShotTime = 0;
 const originalWeaponPos = new THREE.Vector3(0.5, -1.5, -2);
+
+// IMPORTANT: Declare currentGunMesh globally so it can be referenced in other functions.
 let currentGunMesh = null;
 
 // ================== Inventory & Guns ==================
@@ -319,12 +321,10 @@ function onMouseDown(event) {
   // Determine number of pellets to shoot
   const pellets = currentGun.pellets;
   for (let i = 0; i < pellets; i++) {
-    // Compute spread for shotgun (or no spread for pistol)
     let spreadAngle = 0;
     if (pellets > 1) {
-      spreadAngle = THREE.MathUtils.degToRad(5); // 5 degrees spread
+      spreadAngle = THREE.MathUtils.degToRad(5);
     }
-    // Create a direction vector from the camera with random spread
     const forward = new THREE.Vector3();
     camera.getWorldDirection(forward);
     if (spreadAngle > 0) {
@@ -338,24 +338,22 @@ function onMouseDown(event) {
     const bulletGeometry = new THREE.SphereGeometry(0.2, 8, 8);
     const bulletMaterial = new THREE.MeshBasicMaterial({ color: 0xffff00 });
     const bulletMesh = new THREE.Mesh(bulletGeometry, bulletMaterial);
-    // Position bullet a bit in front of the camera
     const bulletStart = new THREE.Vector3();
     camera.getWorldPosition(bulletStart);
     bulletStart.add(forward.clone().multiplyScalar(2));
     bulletMesh.position.copy(bulletStart);
     scene.add(bulletMesh);
 
-    // Create bullet trail (line from start to current bullet position)
+    // Create bullet trail
     const trailGeometry = new THREE.BufferGeometry().setFromPoints([bulletStart.clone(), bulletStart.clone()]);
     const trailMaterial = new THREE.LineBasicMaterial({ color: 0xffff00, transparent: true, opacity: 1 });
     const trailLine = new THREE.Line(trailGeometry, trailMaterial);
     scene.add(trailLine);
 
-    // Add bullet to bullets array
     bullets.push({
       mesh: bulletMesh,
       velocity: forward.clone().multiplyScalar(currentGun.bulletSpeed),
-      life: 1.0, // seconds
+      life: 1.0,
       maxLife: 1.0,
       trail: trailLine
     });
@@ -368,7 +366,6 @@ function spawnEnemies(count) {
     let enemy;
     if (enemyModel) {
       enemy = enemyModel.clone();
-      // If the enemy model has animations, create a mixer and play the first animation
       if (enemy.animations && enemy.animations.length > 0) {
         const mixer = new THREE.AnimationMixer(enemy);
         mixer.clipAction(enemy.animations[0]).play();
@@ -376,12 +373,10 @@ function spawnEnemies(count) {
         enemyMixers.push(mixer);
       }
     } else {
-      // Fallback: a red box
       const enemyGeometry = new THREE.BoxGeometry(10, 10, 10);
       const enemyMaterial = new THREE.MeshBasicMaterial({ color: 0xff0000 });
       enemy = new THREE.Mesh(enemyGeometry, enemyMaterial);
     }
-    // Place enemy randomly (keeping some distance from the center)
     let x = Math.random() * 800 - 400;
     let z = Math.random() * 800 - 400;
     while (Math.sqrt(x * x + z * z) < 50) {
@@ -400,13 +395,11 @@ function updateBullets(delta) {
   for (let i = bullets.length - 1; i >= 0; i--) {
     const bullet = bullets[i];
     bullet.mesh.position.add(bullet.velocity.clone().multiplyScalar(delta));
-    // Update trail (line end follows bullet)
     const positions = bullet.trail.geometry.attributes.position.array;
     positions[3] = bullet.mesh.position.x;
     positions[4] = bullet.mesh.position.y;
     positions[5] = bullet.mesh.position.z;
     bullet.trail.geometry.attributes.position.needsUpdate = true;
-    // Fade trail over lifetime
     bullet.trail.material.opacity = bullet.life / bullet.maxLife;
     bullet.life -= delta;
     if (bullet.life <= 0) {
@@ -415,7 +408,6 @@ function updateBullets(delta) {
       bullets.splice(i, 1);
       continue;
     }
-    // Check collision with enemies (using simple distance check)
     for (let j = enemyList.length - 1; j >= 0; j--) {
       const enemy = enemyList[j];
       if (bullet.mesh.position.distanceTo(enemy.position) < 5) {
@@ -447,16 +439,11 @@ function animate() {
   const time = performance.now();
   const delta = (time - prevTime) / 1000;
 
-  // Update enemy mixers (for animations)
   enemyMixers.forEach((mixer) => mixer.update(delta));
 
-  // Apply gravity
   velocity.y -= GRAVITY * delta;
-  // Dampen horizontal velocity (simulate friction)
   velocity.x -= velocity.x * 10.0 * delta;
   velocity.z -= velocity.z * 10.0 * delta;
-
-  // Set base speed (increase if sprinting)
   let baseSpeed = 400.0;
   if (isSprinting) baseSpeed *= 1.5;
   direction.z = Number(moveForward) - Number(moveBackward);
@@ -467,7 +454,6 @@ function animate() {
   controls.moveRight(-velocity.x * delta);
   controls.moveForward(-velocity.z * delta);
 
-  // Vertical movement (jumping/gravity)
   controls.getObject().position.y += velocity.y * delta;
   if (controls.getObject().position.y < 10) {
     velocity.y = 0;
@@ -475,7 +461,6 @@ function animate() {
     canJump = true;
   }
 
-  // Recover gun recoil (animate gun back to its original position)
   if (currentGunMesh && currentGunMesh.position.z < originalWeaponPos.z) {
     currentGunMesh.position.z += currentGun.recoil * delta * 5;
     if (currentGunMesh.position.z > originalWeaponPos.z) {
@@ -483,10 +468,8 @@ function animate() {
     }
   }
 
-  // Update bullets
   updateBullets(delta);
 
-  // Update enemies: move them toward the player
   const playerPos = controls.getObject().position;
   for (let enemy of enemyList) {
     const enemyPos = enemy.position;
@@ -497,7 +480,6 @@ function animate() {
     if (distance < 10) { gameOver(); return; }
   }
 
-  // Check for round completion
   if (enemyList.length === 0 && controls.isLocked) {
     currentRound++;
     const enemyCount = baseEnemyCount + currentRound * 2;
