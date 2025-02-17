@@ -507,14 +507,26 @@ function gameOver() {
 // ================== Start Game ==================
 playButton.addEventListener("click", () => {
   console.log("Play button clicked.");
+  // Hide the menu completely:
   menu.style.display = "none";
+  // Show the game container:
   gameContainer.style.display = "block";
+  
+  // Initialize the game (this creates the scene, camera, renderer, etc.)
   initGame();
   gameRunning = true;
-  renderer.domElement.requestPointerLock();
+  
+  // Delay the pointer lock request a bit so it registers as part of the user gesture.
+  setTimeout(() => {
+    if (renderer && renderer.domElement) {
+      console.log("Requesting pointer lock...");
+      renderer.domElement.requestPointerLock();
+    }
+  }, 100);
+  
+  // Start the animation loop
   animate();
 });
-
 // ================== Handle Window Resize ==================
 window.addEventListener("resize", () => {
   if (camera && renderer) {
